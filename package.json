@@ -5,7 +5,7 @@
   "main": "index.js",
   "repository": {
     "type": "git",
-    "url": "https://github.com/TryGhost/node-sqlite3.git"
+    "url": "https://github.com/li1125435097/sqlite3-pure.git"
   },
   "scripts": {
     "build": "node-gyp rebuild",
