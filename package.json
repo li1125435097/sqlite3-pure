@@ -1,6 +1,6 @@
 {
   "name": "sqlite3-pure",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "A simple SQLite3 Node.js addon with embedded SQLite3 (version 3.50.4)",
   "main": "index.js",
   "repository": {
@@ -10,7 +10,8 @@
   "scripts": {
     "build": "node-gyp rebuild",
     "test": "node test/test.js",
-    "install": "node-gyp rebuild"
+    "install": "node-gyp rebuild",
+    "pub": "npm version patch && npm publish --access public"
   },
   "dependencies": {
     "bindings": "^1.5.0"
