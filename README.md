@@ -17,12 +17,15 @@ const sqlite3 = require('sqlite3-pure');
 sqlite3.openDb('test.db');
 
 // Execute SQL statements
-sqlite3.exec('CREATE TABLE if not exists test (id INTEGER, name TEXT); INSERT INTO test VALUES (1, "Alice"), (2, "Bob"); SELECT * FROM test;');
+sqlite3.exec('CREATE TABLE if not exists test (id INTEGER, name TEXT); INSERT INTO test VALUES (1, "Alice"), (2, "Bob"); SELECT * FROM test;').then(async a => {
+    // Fetch results
+    let result = await sqlite3.exec('SELECT * FROM test')
+    console.log(result);
+    
+    // Close the database
+    sqlite3.closeDb();
+})
 
-// Fetch results
-let a = sqlite3.exec('SELECT * FROM test')
-console.log(a);
-// Output: [{ id: '1', name: 'Alice' }, { id: '2', name: 'Bob' }]
 ```
 
 ## Prerequisites
