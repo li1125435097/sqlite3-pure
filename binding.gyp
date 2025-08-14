@@ -1,9 +1,9 @@
 {
   "targets": [
     {
-      "target_name": "sqlite3-simple",
+      "target_name": "sqlite3-pure",
       "sources": [
-        "src/sqlite3-simple.cc",
+        "src/sqlite3-pure.cc",
         "deps/sqlite3/sqlite3.c" 
       ],
       "include_dirs": [

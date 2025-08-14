@@ -1,4 +1,4 @@
-const addon = require('bindings')('sqlite3-simple');
+const addon = require('bindings')('sqlite3-pure');
 
 module.exports = {
   openDb: addon.OpenDb,
