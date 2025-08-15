@@ -8,7 +8,7 @@
 
 using namespace v8;
 
-sqlite3* db;  // Global database handle
+sqlite3* db = nullptr;  // Global database handle
 
 // Structure to hold query results
 struct QueryResult {
@@ -52,11 +52,16 @@ void OpenDb(const FunctionCallbackInfo<Value>& args) {
     HandleScope scope(isolate);
 
     assert(args[0]->IsString());  // Database path
-    
-    String::Utf8Value dbPath(isolate, args[0].As<String>());
-    int rc = sqlite3_open(*dbPath, &db);
-    
-    args.GetReturnValue().Set(Integer::New(isolate, rc));
+
+    // Check if database is already open
+    if(db != nullptr) {
+        args.GetReturnValue().Set(Integer::New(isolate, 0));
+    }else {
+        String::Utf8Value dbPath(isolate, args[0].As<String>());
+        int rc = sqlite3_open(*dbPath, &db);
+        
+        args.GetReturnValue().Set(Integer::New(isolate, rc));
+    }
 }
 
 // Work function executed in the thread pool

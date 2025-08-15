@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "node-gyp rebuild",
-    "test": "node test/test.js",
+    "test": "node test/index.js",
     "install": "node-gyp rebuild",
     "pub": "npm version patch && npm publish --access public"
   },
