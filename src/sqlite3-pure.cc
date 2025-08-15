@@ -5,6 +5,7 @@
 #include <uv.h>
 #include <vector>
 #include <string>
+#include <sstream>
 
 using namespace v8;
 
@@ -13,8 +14,11 @@ sqlite3* db = nullptr;  // Global database handle
 // Structure to hold query results
 struct QueryResult {
     std::vector<std::string> colNames;
-    std::vector<std::vector<std::string>> rows;
+    std::vector<int> colTypes; // Store SQLite column types
+    std::vector<std::vector<std::string>> rows; // String representations
+    std::vector<std::vector<std::pair<bool, std::string>>> blobs; // BLOB data
     std::string errorMsg;
+    std::string debugMsg; // For debug info
     int rc;
 };
 
@@ -27,25 +31,6 @@ struct AsyncQueryBaton {
     Isolate* isolate;
 };
 
-// Callback function to collect query results
-static int callback(void* data, int argc, char** argv, char** colName) {
-    QueryResult* result = static_cast<QueryResult*>(data);
-    
-    if (result->colNames.empty()) {
-        for (int i = 0; i < argc; i++) {
-            result->colNames.push_back(colName[i] ? colName[i] : "");
-        }
-    }
-    
-    std::vector<std::string> row;
-    for (int i = 0; i < argc; i++) {
-        row.push_back(argv[i] ? argv[i] : "NULL");
-    }
-    result->rows.push_back(row);
-    
-    return 0;
-}
-
 void OpenDb(const FunctionCallbackInfo<Value>& args) {
     Isolate* isolate = args.GetIsolate();
     Local<Context> context = isolate->GetCurrentContext();
@@ -53,13 +38,11 @@ void OpenDb(const FunctionCallbackInfo<Value>& args) {
 
     assert(args[0]->IsString());  // Database path
 
-    // Check if database is already open
-    if(db != nullptr) {
+    if (db != nullptr) {
         args.GetReturnValue().Set(Integer::New(isolate, 0));
-    }else {
+    } else {
         String::Utf8Value dbPath(isolate, args[0].As<String>());
         int rc = sqlite3_open(*dbPath, &db);
-        
         args.GetReturnValue().Set(Integer::New(isolate, rc));
     }
 }
@@ -67,14 +50,85 @@ void OpenDb(const FunctionCallbackInfo<Value>& args) {
 // Work function executed in the thread pool
 void ExecuteQuery(uv_work_t* req) {
     AsyncQueryBaton* baton = static_cast<AsyncQueryBaton*>(req->data);
-    
-    char* errMsg = nullptr;
-    baton->result.rc = sqlite3_exec(db, baton->query.c_str(), callback, &baton->result, &errMsg); // Store rc in baton->result.rc
-    
-    if (errMsg) {
-        baton->result.errorMsg = errMsg;
-        sqlite3_free(errMsg);
+    std::stringstream debug;
+    const char* sql = baton->query.c_str();
+    const char* tail = nullptr;
+
+    if (!db) {
+        baton->result.errorMsg = "Database not initialized";
+        baton->result.rc = SQLITE_ERROR;
+        debug << "Error: Database not initialized\n";
+        baton->result.debugMsg = debug.str();
+        return;
     }
+
+    while (*sql) {
+        sqlite3_stmt* stmt;
+        debug << "Preparing statement: " << sql << "\n";
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, &tail) != SQLITE_OK) {
+            baton->result.errorMsg = sqlite3_errmsg(db);
+            baton->result.rc = SQLITE_ERROR;
+            debug << "Prepare failed: " << baton->result.errorMsg << "\n";
+            baton->result.debugMsg = debug.str();
+            return;
+        }
+
+        int colCount = sqlite3_column_count(stmt);
+        debug << "Column count: " << colCount << "\n";
+        if (colCount > 0 && baton->result.colNames.empty()) {
+            for (int i = 0; i < colCount; i++) {
+                const char* colName = sqlite3_column_name(stmt, i);
+                baton->result.colNames.push_back(colName ? colName : "");
+                debug << "Column " << i << ": " << (colName ? colName : "null") << "\n";
+            }
+        }
+
+        int rowCount = 0;
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            std::vector<std::string> row;
+            std::vector<std::pair<bool, std::string>> blobRow;
+            if (colCount > 0 && baton->result.colTypes.empty()) {
+                for (int i = 0; i < colCount; i++) {
+                    baton->result.colTypes.push_back(sqlite3_column_type(stmt, i));
+                    debug << "Column " << i << " type: " << sqlite3_column_type(stmt, i) << "\n";
+                }
+            }
+            for (int i = 0; i < colCount; i++) {
+                int type = sqlite3_column_type(stmt, i);
+                if (type == SQLITE_NULL) {
+                    row.push_back("NULL");
+                    blobRow.push_back({false, ""});
+                } else if (type == SQLITE_BLOB) {
+                    const void* blob = sqlite3_column_blob(stmt, i);
+                    int blobSize = sqlite3_column_bytes(stmt, i);
+                    row.push_back("");
+                    blobRow.push_back({true, std::string(static_cast<const char*>(blob), blobSize)});
+                } else {
+                    const char* text = reinterpret_cast<const char*>(sqlite3_column_text(stmt, i));
+                    row.push_back(text ? text : "");
+                    blobRow.push_back({false, ""});
+                }
+            }
+            if (colCount > 0) {
+                baton->result.rows.push_back(row);
+                baton->result.blobs.push_back(blobRow);
+            }
+            rowCount++;
+        }
+        debug << "Rows fetched: " << rowCount << "\n";
+
+        baton->result.rc = sqlite3_finalize(stmt);
+        debug << "Finalize result: " << baton->result.rc << "\n";
+        if (baton->result.rc != SQLITE_OK) {
+            baton->result.errorMsg = sqlite3_errmsg(db);
+            baton->result.debugMsg = debug.str();
+            return;
+        }
+
+        sql = tail; // Move to next statement
+        while (*tail && isspace(*tail)) tail++; // Skip whitespace
+    }
+    baton->result.debugMsg = debug.str();
 }
 
 // Callback function executed after work is complete
@@ -86,7 +140,7 @@ void AfterExecuteQuery(uv_work_t* req, int status) {
     Local<Context> context = isolate->GetCurrentContext();
     Local<Promise::Resolver> resolver = Local<Promise::Resolver>::New(isolate, baton->resolver);
     
-    if (baton->result.rc != SQLITE_OK) { // Check baton->result.rc
+    if (baton->result.rc != SQLITE_OK) {
         // Reject promise with error
         Local<String> error = String::NewFromUtf8(isolate, baton->result.errorMsg.c_str()).ToLocalChecked();
         resolver->Reject(context, Exception::Error(error)).Check();
@@ -97,7 +151,40 @@ void AfterExecuteQuery(uv_work_t* req, int status) {
             Local<Object> rowObj = Object::New(isolate);
             for (size_t j = 0; j < baton->result.colNames.size(); j++) {
                 Local<String> key = String::NewFromUtf8(isolate, baton->result.colNames[j].c_str()).ToLocalChecked();
-                Local<String> value = String::NewFromUtf8(isolate, baton->result.rows[i][j].c_str()).ToLocalChecked();
+                Local<Value> value;
+                int type = baton->result.colTypes[j];
+                const std::string& rawValue = baton->result.rows[i][j];
+                
+                if (type == SQLITE_NULL) {
+                    value = Null(isolate);
+                } else if (type == SQLITE_INTEGER) {
+                    try {
+                        int64_t intValue = std::stoll(rawValue);
+                        if (intValue >= -2147483648LL && intValue <= 2147483647LL) {
+                            value = Integer::New(isolate, static_cast<int32_t>(intValue));
+                        } else {
+                            value = Number::New(isolate, static_cast<double>(intValue));
+                        }
+                    } catch (...) {
+                        value = String::NewFromUtf8(isolate, rawValue.c_str()).ToLocalChecked();
+                    }
+                } else if (type == SQLITE_FLOAT) {
+                    try {
+                        double doubleValue = std::stod(rawValue);
+                        value = Number::New(isolate, doubleValue);
+                    } catch (...) {
+                        value = String::NewFromUtf8(isolate, rawValue.c_str()).ToLocalChecked();
+                    }
+                } else if (type == SQLITE_TEXT) {
+                    value = String::NewFromUtf8(isolate, rawValue.c_str()).ToLocalChecked();
+                } else if (type == SQLITE_BLOB) {
+                    const auto& blobData = baton->result.blobs[i][j];
+                    if (blobData.first) {
+                        value = node::Buffer::Copy(isolate, blobData.second.data(), blobData.second.size()).ToLocalChecked();
+                    } else {
+                        value = String::NewFromUtf8(isolate, "[BLOB]").ToLocalChecked();
+                    }
+                }
                 rowObj->Set(context, key, value).Check();
             }
             jsResult->Set(context, i, rowObj).Check();

@@ -13,10 +13,10 @@ npm install sqlite3-pure
 ```javascript
 const sqlite3 = require('sqlite3-pure');
 
-// Open a database
+// Open a database， Global singleton, only supports one database
 sqlite3.openDb('test.db');
 
-// Execute SQL statements
+// Execute SQL statements， Supports multiple statements separated by semicolons, Support transactions, Returns a promise
 sqlite3.exec('CREATE TABLE if not exists test (id INTEGER, name TEXT); INSERT INTO test VALUES (1, "Alice"), (2, "Bob"); SELECT * FROM test;').then(async a => {
     // Fetch results
     let result = await sqlite3.exec('SELECT * FROM test')
@@ -33,15 +33,8 @@ sqlite3.exec('CREATE TABLE if not exists test (id INTEGER, name TEXT); INSERT IN
 - Node.js >= 14
 - No external SQLite3 library required (embedded in the module)
 
-## Development
-
-To build locally:
-
-```bash
-npm install
-npm run build
-npm test
-```
+## Version Notes
+- 0.0.5-beta: Fix the issue of converting JS data types to SQLite data types
 
 ## License
 
