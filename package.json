@@ -1,6 +1,6 @@
 {
   "name": "sqlite3-pure",
-  "version": "0.0.4-beta",
+  "version": "0.0.4",
   "description": "A simple SQLite3 Node.js addon with embedded SQLite3 (version 3.50.4)",
   "main": "index.js",
   "repository": {
