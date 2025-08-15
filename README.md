@@ -34,7 +34,7 @@ sqlite3.exec('CREATE TABLE if not exists test (id INTEGER, name TEXT); INSERT IN
 - No external SQLite3 library required (embedded in the module)
 
 ## Version Notes
-- 0.0.5-beta: Fix the issue of converting JS data types to SQLite data types
+- 0.0.5: Beta, Fix the issue of converting JS data types to SQLite data types
 
 ## License
 
